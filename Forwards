@@ -1,0 +1,71 @@
+import numpy as np
+import pandas as pd
+from scipy.interpolate import interp1d
+
+def discount_factor(r, T, compounding='continuous'):
+    """Return discount factor from zero rate r over T years."""
+    if compounding == 'continuous':
+        return np.exp(-r * T)
+    elif compounding == 'annual':
+        return 1 / (1 + r * T)
+    elif compounding == 'semiannual':
+        return 1 / (1 + r / 2) ** (2 * T)
+    elif compounding == 'quarterly':
+        return 1 / (1 + r / 4) ** (4 * T)
+    else:
+        raise ValueError("compounding must be 'continuous', 'annual', 'semiannual', or 'quarterly'")
+
+def fx_forward(spot, rd_curve, rf_curve, T_query, compounding='continuous'):
+    """
+    Compute FX forward rate from spot and zero curves.
+    spot : float — spot FX rate (domestic per unit of foreign)
+    rd_curve : (T, rate) pairs for domestic zero curve
+    rf_curve : (T, rate) pairs for foreign zero curve
+    T_query : float or array — maturities in years for which to compute forwards
+    compounding : str — compounding convention
+    """
+    # Interpolate zero curves
+    Td, rd = rd_curve
+    Tf, rf = rf_curve
+    rd_interp = interp1d(Td, rd, kind='linear', fill_value='extrapolate')
+    rf_interp = interp1d(Tf, rf, kind='linear', fill_value='extrapolate')
+
+    T_query = np.array(T_query)
+    rd_q = rd_interp(T_query)
+    rf_q = rf_interp(T_query)
+
+    # Compute discount factors
+    Pd = discount_factor(rd_q, T_query, compounding)
+    Pf = discount_factor(rf_q, T_query, compounding)
+
+    # Compute forwards
+    F = spot * Pf / Pd
+    return pd.DataFrame({
+        'Maturity (yrs)': T_query,
+        'Domestic zero (interp)': rd_q,
+        'Foreign zero (interp)': rf_q,
+        'Forward': F
+    })
+
+# Example ---------------------------------------------------------------
+spot = 1.10
+
+# Zero curve data (tenors in years, zero rates)
+T_domestic = np.array([0.25, 0.5, 1.0, 2.0, 5.0])
+r_domestic = np.array([0.045, 0.047, 0.050, 0.052, 0.055])
+
+T_foreign = np.array([0.25, 0.5, 1.0, 2.0, 5.0])
+r_foreign = np.array([0.025, 0.028, 0.030, 0.033, 0.037])
+
+# Desired maturities
+T_query = np.array([0.25, 0.75, 1.5, 3.0, 4.0])
+
+df_forwards = fx_forward(
+    spot,
+    rd_curve=(T_domestic, r_domestic),
+    rf_curve=(T_foreign, r_foreign),
+    T_query=T_query,
+    compounding='continuous'
+)
+
+print(df_forwards)
